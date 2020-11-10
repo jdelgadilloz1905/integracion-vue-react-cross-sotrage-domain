@@ -1,0 +1,211 @@
+<template> </template>
+
+<script>
+export default {
+  methods: {
+    //**************FUNCIONES QUE REALIZAN LA PETICION AL DOMINIO *****************
+    crossDomainStorage(opts) {
+      var origin = opts.origin || "",
+        path = opts.path || "",
+        storage = opts.storage || "localStorage";
+      var cdstorage = {},
+        _iframe = null,
+        _iframeReady = false,
+        _origin = origin,
+        _path = path,
+        _queue = [],
+        _requests = {},
+        _id = 0;
+
+      var supported = (function() {
+        try {
+          return window.JSON && storage in window && window[storage] !== null;
+        } catch (e) {
+          return false;
+        }
+      })();
+
+      //Metodos privados
+
+      var _sendRequest = function(data) {
+        if (_iframe) {
+          _requests[data.request.id] = data;
+          _iframe.contentWindow.postMessage(
+            JSON.stringify(data.request),
+            _origin
+          );
+        }
+      };
+
+      var _iframeLoaded = function() {
+        _iframeReady = true;
+        if (_queue.length) {
+          for (var i = 0, len = _queue.length; i < len; i++) {
+            _sendRequest(_queue[i]);
+          }
+          _queue = [];
+        }
+      };
+
+      var _handleMessage = function(event) {
+        if (event.origin === _origin) {
+          var data = JSON.parse(event.data);
+          if (typeof _requests[data.id] != "undefined") {
+            if (typeof _requests[data.id].deferred !== "undefined") {
+              _requests[data.id].deferred.resolve(data.value);
+            }
+            if (typeof _requests[data.id].callback === "function") {
+              _requests[data.id].callback(data.key, data.value);
+            }
+            delete _requests[data.id];
+          }
+        }
+      };
+
+      //Metodos publicos
+
+      cdstorage.getItem = function(key, callback) {
+        if (supported) {
+          var request = {
+              id: ++_id,
+              type: "get",
+              key: key,
+              storage: storage
+            },
+            data = {
+              request: request,
+              callback: callback
+            };
+
+          if (_iframeReady) {
+            _sendRequest(data);
+          } else {
+            _queue.push(data);
+          }
+
+          if (window.jQuery) {
+            return data.deferred.promise();
+          }
+        }
+      };
+
+      cdstorage.setItem = function(key, value) {
+        if (supported) {
+          var request = {
+              id: ++_id,
+              type: "set",
+              key: key,
+              value: value,
+              storage: storage
+            },
+            data = {
+              request: request
+            };
+
+          if (_iframeReady) {
+            _sendRequest(data);
+          } else {
+            _queue.push(data);
+          }
+
+          if (window.jQuery) {
+            return data.deferred.promise();
+          }
+        }
+      };
+
+      cdstorage.removeItem = function(key) {
+        if (supported) {
+          var request = {
+              id: ++_id,
+              type: "remove",
+              key: key,
+              storage: storage
+            },
+            data = {
+              request: request
+            };
+
+          if (_iframeReady) {
+            _sendRequest(data);
+          } else {
+            _queue.push(data);
+          }
+
+          if (window.jQuery) {
+            return data.deferred.promise();
+          }
+        }
+      };
+
+      //Init
+      if (!_iframe && supported) {
+        _iframe = document.createElement("iframe");
+        _iframe.style.cssText =
+          "position:absolute;width:1px;height:1px;left:-9999px;";
+        document.body.appendChild(_iframe);
+
+        if (window.addEventListener) {
+          _iframe.addEventListener(
+            "load",
+            function() {
+              _iframeLoaded();
+            },
+            false
+          );
+          window.addEventListener(
+            "message",
+            function(event) {
+              _handleMessage(event);
+            },
+            false
+          );
+        } else if (_iframe.attachEvent) {
+          _iframe.attachEvent(
+            "onload",
+            function() {
+              _iframeLoaded();
+            },
+            false
+          );
+          window.attachEvent("onmessage", function(event) {
+            _handleMessage(event);
+          });
+        }
+        _iframe.src = _origin + _path;
+        console.log("LA RUTA ES ", _iframe.src);
+      }
+
+      return cdstorage;
+    }
+
+    //************************FIN DEL CODIGO***************************************
+  },
+  mounted() {
+    //esto es lo primero que se dispara al momento de cargar el componente
+    //se le pasa por parametros la ruta del dominio donde se le va enviar las variables
+
+    var cdstorage = this.crossDomainStorage({
+      origin: "http://localhost:8000",
+      path: "/"
+    });
+
+    //UNA VEZ REALIZADO LA CONEXION CON EL DOMINIO, SE PROCESE A REALIZAR LAS PETICIONES SET, GET O REMOVE
+
+    //A CONTINUACION INDICO UNOS EJEMPLOS
+
+    //CREAR
+    cdstorage.setItem(
+      "a_cross-domain_key3000",
+      "El valor debe ser una cadena o se convertirá en una cadena..."
+    );
+
+    //OBTENER
+    cdstorage.getItem("otra_variebla_vue", function(key, value) {
+      console.info("<br/>Cross Domain callback: (" + key + ": " + value + ")");
+    });
+    //ELIMINAR
+    cdstorage.removeItem("a_cross-domain_key3000");
+  }
+};
+</script>
